@@ -46,12 +46,17 @@ Cache misses on a page that should be cached: check the exclusion list, then the
 
 ## Screenshots
 
-![01-dashboard](assets/screenshots/dashboard.png)
+![cloud](docs/img/cloud.png)
 
+*Optional benchmark with a score and recommendations*
 
-![02-cache](assets/screenshots/cache.png)
+![seo](docs/img/seo.png)
 
+*Sitemap, social tags and breadcrumbs on one screen*
 
+![front-end-mobile](docs/img/front-end-mobile.png)
+
+*Front end at 390 px*
 
 ## Install
 
@@ -59,9 +64,9 @@ Cache misses on a page that should be cached: check the exclusion list, then the
 
 | method | command |
 |---|---|
-| Download | `plugin.zip` from the [release page](https://github.com/AssuranceReminisce/rowan-edge-cache/releases), then upload it through **Plugins → Add New** |
+| Download | `rowan-edge-cache-1.0.1.zip` from the [release page](https://github.com/AssuranceReminisce/rowan-edge-cache/releases/latest), then upload it through **Plugins → Add New** |
 | Git | `git clone https://github.com/AssuranceReminisce/rowan-edge-cache wp-content/plugins/rowan-edge-cache` and activate from the Plugins screen |
-| WP-CLI | `wp plugin install https://github.com/AssuranceReminisce/rowan-edge-cache/releases/latest/download/plugin.zip --activate` |
+| WP-CLI | `wp plugin install https://github.com/AssuranceReminisce/rowan-edge-cache/releases/latest/download/rowan-edge-cache-1.0.1.zip --activate` |
 
 The release asset and the `src/` tree are the same code; the ZIP is built from it.
 
