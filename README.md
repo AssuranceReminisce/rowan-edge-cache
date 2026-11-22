@@ -46,25 +46,28 @@ Cache misses on a page that should be cached: check the exclusion list, then the
 
 ## Screenshots
 
-![cache](assets/screenshots/cache.png)
+![01-dashboard](assets/screenshots/01-dashboard.png)
 
-*Cache TTL, exclusions and manual purge*
 
-![dashboard](assets/screenshots/dashboard.png)
+![02-cache](assets/screenshots/02-cache.png)
 
-*Cache hit rate, average load and cache size after a week of traffic*
 
-![seo](assets/screenshots/seo.png)
+![03-optimize](assets/screenshots/03-optimize.png)
 
-*Sitemap, social tags and breadcrumbs on one screen*
+
+![04-database](assets/screenshots/04-database.png)
 
 ## Install
 
-**Three ways in**
+**Pick whichever fits your workflow**
 
-- Release ZIP: `rowan-edge-cache-1.0.0.zip` from [releases](https://github.com/AssuranceReminisce/rowan-edge-cache/releases/latest), upload through the Plugins screen.
-- Source: `git clone https://github.com/AssuranceReminisce/rowan-edge-cache` into `wp-content/plugins/`, then activate.
-- WP-CLI: `wp plugin install https://github.com/AssuranceReminisce/rowan-edge-cache/releases/latest/download/rowan-edge-cache-1.0.0.zip --activate`
+| method | command |
+|---|---|
+| Download | `plugin.zip` from the [release page](https://github.com/AssuranceReminisce/rowan-edge-cache/releases), then upload it through **Plugins → Add New** |
+| Git | `git clone https://github.com/AssuranceReminisce/rowan-edge-cache wp-content/plugins/rowan-edge-cache` and activate from the Plugins screen |
+| WP-CLI | `wp plugin install https://github.com/AssuranceReminisce/rowan-edge-cache/releases/latest/download/plugin.zip --activate` |
+
+The release asset and the `src/` tree are the same code; the ZIP is built from it.
 
 ## Configuration
 
