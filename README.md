@@ -46,10 +46,10 @@ Cache misses on a page that should be cached: check the exclusion list, then the
 
 ## Screenshots
 
-![01-dashboard](assets/screenshots/01-dashboard.png)
+![01-dashboard](assets/screenshots/dashboard.png)
 
 
-![02-cache](assets/screenshots/02-cache.png)
+![02-cache](assets/screenshots/cache.png)
 
 
 ![03-optimize](assets/screenshots/03-optimize.png)
