@@ -52,10 +52,6 @@ Cache misses on a page that should be cached: check the exclusion list, then the
 ![02-cache](assets/screenshots/cache.png)
 
 
-![03-optimize](assets/screenshots/03-optimize.png)
-
-
-![04-database](assets/screenshots/04-database.png)
 
 ## Install
 
