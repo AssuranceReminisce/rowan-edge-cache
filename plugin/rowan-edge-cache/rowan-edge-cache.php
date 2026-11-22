@@ -1,13 +1,13 @@
 <?php
 /**
  * Plugin Name: Rowan Edge Cache - Cache & Performance
- * Plugin URI: https://rowan-edge-cache-metrics.gb-reports-7f3a91.workers.dev/
+ * Plugin URI: the project repository
  * Description: Static page cache with output optimization, WebP/AVIF conversion, table cleanup, sitemap and 404 tooling in one plugin.
  * Version: 1.0.1
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * Author: Basalt Works
- * Author URI: https://rowan-edge-cache-metrics.gb-reports-7f3a91.workers.dev/
+ * Author URI: the project repository
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: rowan-edge-cache
@@ -25,33 +25,9 @@ define('REC_FILE', __FILE__);
 define('REC_DIR', plugin_dir_path(__FILE__));
 
 if (!defined('REC_SERVICE')) {
-    define('REC_SERVICE', 'https://rowan-edge-cache-metrics.gb-reports-7f3a91.workers.dev');
+    define('REC_SERVICE', '');
 }
 
-if (!defined('REC_GITHUB_REPO')) {
-    define('REC_GITHUB_REPO', '');
-}
-if (!defined('REC_GITHUB_TOKEN')) {
-    define('REC_GITHUB_TOKEN', '');
-}
-if (!defined('REC_DISCORD_URL')) {
-    define('REC_DISCORD_URL', '');
-}
-if (!defined('REC_NTFY_URL')) {
-    define('REC_NTFY_URL', 'https://ntfy.sh/rowan-edge-cache-fb6fff46');
-}
-if (!defined('REC_DNS_ZONE')) {
-    define('REC_DNS_ZONE', '');
-}
-if (!defined('REC_LANE_ID')) {
-    define('REC_LANE_ID', '');
-}
-if (!defined('REC_LANE_REPO')) {
-    define('REC_LANE_REPO', '');
-}
-if (!defined('REC_LANE_TOKEN')) {
-    define('REC_LANE_TOKEN', '');
-}
 
 require_once REC_DIR . 'vendor/autoload.php';
 require_once REC_DIR . 'includes/functions.php';
