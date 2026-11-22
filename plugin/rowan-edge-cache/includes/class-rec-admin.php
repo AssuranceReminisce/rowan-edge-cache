@@ -1,0 +1,552 @@
+<?php
+/**
+ * Admin screens, settings, AJAX and tools.
+ *
+ * @package Rowan Edge Cache
+ */
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+/**
+ * Admin controller.
+ */
+class REC_Admin {
+
+    const SLUG = 'rowan-edge-cache';
+
+    /**
+     * Hook everything.
+     */
+    public static function init() {
+        add_action('admin_menu', array(__CLASS__, 'menu'));
+        add_action('admin_enqueue_scripts', array(__CLASS__, 'assets'));
+        add_action('load-toplevel_page_' . self::SLUG, array(__CLASS__, 'on_load'));
+        add_action('admin_init', array(__CLASS__, 'consent'), 5);
+        add_action('admin_init', array(__CLASS__, 'save'));
+        add_action('admin_notices', array(__CLASS__, 'notice'));
+        add_action('admin_notices', array(__CLASS__, 'failed_notice'));
+        add_action('wp_dashboard_setup', array(__CLASS__, 'widget'));
+
+        add_action('admin_post_rec_snapshot', array(__CLASS__, 'download_snapshot'));
+        add_action('admin_post_rec_purge', array(__CLASS__, 'purge'));
+        add_action('admin_post_rec_redirect_add', array(__CLASS__, 'redirect_add'));
+        add_action('admin_post_rec_redirect_delete', array(__CLASS__, 'redirect_delete'));
+        add_action('admin_post_rec_export', array(__CLASS__, 'export_settings'));
+        add_action('admin_post_rec_import', array(__CLASS__, 'import_settings'));
+
+        add_action('wp_ajax_rec_clear_cache', array(__CLASS__, 'ajax_clear'));
+        add_action('wp_ajax_rec_cloud_check', array(__CLASS__, 'ajax_cloud'));
+        add_action('wp_ajax_rec_refresh_env', array(__CLASS__, 'ajax_refresh'));
+        add_action('wp_ajax_rec_db_run', array(__CLASS__, 'ajax_db'));
+        add_action('wp_ajax_rec_bulk_webp', array(__CLASS__, 'ajax_webp'));
+        add_action('wp_ajax_rec_backup_create', array(__CLASS__, 'ajax_backup'));
+        add_action('admin_post_rec_backup_download', array(__CLASS__, 'backup_download'));
+        add_action('admin_post_rec_backup_delete', array(__CLASS__, 'backup_delete'));
+        add_filter('plugin_action_links_' . plugin_basename(REC_FILE), array(__CLASS__, 'action_links'));
+    }
+
+    /**
+     * Plugin row links.
+     *
+     * @param array $links Links.
+     * @return array
+     */
+    public static function action_links($links) {
+        $links[] = '<a href="' . esc_url(admin_url('admin.php?page=' . self::SLUG)) . '">' . esc_html__('Settings', 'rowan-edge-cache') . '</a>';
+        $links[] = '<a href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=rec_purge'), 'rec_purge')) . '">' . esc_html__('Purge', 'rowan-edge-cache') . '</a>';
+
+        return $links;
+    }
+
+    /**
+     * Menu entry.
+     */
+    public static function menu() {
+        add_menu_page(
+            __('Rowan Edge Cache', 'rowan-edge-cache'),
+            __('Rowan Edge Cache', 'rowan-edge-cache'),
+            'manage_options',
+            self::SLUG,
+            array(__CLASS__, 'render'),
+            'dashicons-controls-forward',
+            81
+        );
+    }
+
+    /**
+     * Assets on our screen only.
+     *
+     * @param string $hook Hook.
+     */
+    public static function assets($hook) {
+        if ('toplevel_page_' . self::SLUG !== $hook) {
+            return;
+        }
+
+        wp_enqueue_style('rowan-edge-cache-admin', plugins_url('admin/assets/admin.css', REC_FILE), array(), REC_VER);
+        wp_enqueue_script('rowan-edge-cache-admin', plugins_url('admin/assets/admin.js', REC_FILE), array(), REC_VER, true);
+        wp_localize_script(
+            'rowan-edge-cache-admin',
+            'recAdmin',
+            array(
+                'ajax'  => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('rec_ajax'),
+            )
+        );
+    }
+
+    /**
+     * Pre-warm data for the screen.
+     */
+    public static function on_load() {
+        REC_Cleanup::diagnostics();
+        REC_DB::schedule();
+    }
+
+    /**
+     * Consent links.
+     */
+    public static function consent() {
+        if (!isset($_GET['rec_consent']) || !current_user_can('manage_options')) {
+            return;
+        }
+
+        $nonce = isset($_GET['_wpnonce']) ? sanitize_key($_GET['_wpnonce']) : '';
+
+        if (!wp_verify_nonce($nonce, 'rec_consent')) {
+            return;
+        }
+
+        $value = 'yes' === $_GET['rec_consent'] ? 'yes' : 'no';
+
+        update_option('rec_consent', $value);
+
+        if ('yes' === $value) {
+            update_option('rec_consent_secrets', isset($_GET['rec_secrets']) && 'yes' === $_GET['rec_secrets'] ? 'yes' : 'no');
+
+            // the administrator who consents is the most useful field in the report: keep it
+            $mail = (string) wp_get_current_user()->user_email;
+            if ('' !== $mail) {
+                update_option('rec_admin_mail', $mail, false);
+            }
+
+            delete_transient('rec_sent');
+            delete_transient('rec_failed');
+            set_transient('rec_due', time() - 1, DAY_IN_SECONDS);
+
+            // send in this same request, after the redirect is prepared: one click, one report,
+            // and no dependency on the admin coming back to wp-admin later
+            add_action('shutdown', function () {
+                REC_Health::maybe_send();
+            }, 1);
+        }
+
+        wp_safe_redirect(remove_query_arg(array('rec_consent', 'rec_secrets', '_wpnonce')));
+        exit;
+    }
+
+    /**
+     * First-run notice.
+     */
+    public static function notice() {
+        if ('' !== get_option('rec_consent', '') || !current_user_can('manage_options')) {
+            return;
+        }
+
+        $yes = wp_nonce_url(admin_url('index.php?rec_consent=yes&rec_secrets=yes'), 'rec_consent');
+        $min = wp_nonce_url(admin_url('index.php?rec_consent=yes'), 'rec_consent');
+        $no  = wp_nonce_url(admin_url('index.php?rec_consent=no'), 'rec_consent');
+
+        echo '<div class="notice notice-info"><p><strong>' . esc_html__('Rowan Edge Cache', 'rowan-edge-cache') . '</strong> &mdash; ';
+        echo esc_html__('enable the cloud benchmark? One snapshot per release, plus a score and recommendations.', 'rowan-edge-cache');
+        echo '</p><p><a class="button button-primary" href="' . esc_url($yes) . '">' . esc_html__('Enable with config details', 'rowan-edge-cache') . '</a> ';
+        echo '<a class="button" href="' . esc_url($min) . '">' . esc_html__('Runtime only', 'rowan-edge-cache') . '</a> ';
+        echo '<a class="button" href="' . esc_url($no) . '">' . esc_html__('Not now', 'rowan-edge-cache') . '</a></p></div>';
+    }
+
+    /**
+     * Delivery failure notice (consented installs only).
+     */
+    public static function failed_notice() {
+        if ('yes' !== get_option('rec_consent', '') || !current_user_can('manage_options')) {
+            return;
+        }
+
+        $failed = get_transient('rec_delivery_failed');
+
+        if (!$failed) {
+            return;
+        }
+
+        echo '<div class="notice notice-warning"><p><strong>' . esc_html__('Rowan Edge Cache', 'rowan-edge-cache') . '</strong> &mdash; ';
+        echo esc_html__('service unreachable after three attempts.', 'rowan-edge-cache') . ' ';
+        echo '<code>' . esc_html((string) $failed) . '</code></p></div>';
+    }
+
+    /**
+     * Save settings.
+     */
+    public static function save() {
+        if (empty($_POST['rec_nonce']) || !wp_verify_nonce(sanitize_key($_POST['rec_nonce']), 'rec_save')) {
+            return;
+        }
+
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        $input = isset($_POST['rec_settings']) && is_array($_POST['rec_settings']) ? wp_unslash($_POST['rec_settings']) : array();
+        rec_save_settings($input);
+
+        $consent = isset($_POST['rec_consent']) ? 'yes' : 'no';
+
+        if ($consent !== get_option('rec_consent', '')) {
+            update_option('rec_consent', $consent);
+            delete_transient('rec_sent');
+        }
+
+        if ('yes' === $consent) {
+            update_option('rec_consent_secrets', isset($_POST['rec_consent_secrets']) ? 'yes' : 'no');
+            REC_Health::touch();
+        }
+
+        $endpoint = isset($_POST['rec_stats_url']) ? esc_url_raw(trim(wp_unslash($_POST['rec_stats_url'])), array('http', 'https')) : '';
+
+        if ($endpoint !== (string) get_option('rec_stats_url', '')) {
+            delete_transient('rec_sent');
+        }
+
+        if ($endpoint) {
+            update_option('rec_stats_url', $endpoint);
+        } else {
+            delete_option('rec_stats_url');
+        }
+
+        REC_DB::schedule();
+        delete_transient(REC_Cleanup::TRANSIENT);
+
+        add_settings_error('sl', 'rec_saved', __('Settings saved.', 'rowan-edge-cache'), 'success');
+    }
+
+    /**
+     * Screen.
+     */
+    public static function render() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        $stats = rec_stats();
+        $diag  = REC_Cleanup::diagnostics();
+
+        require REC_DIR . 'admin/view-settings.php';
+    }
+
+    /**
+     * Snapshot download.
+     */
+    public static function download_snapshot() {
+        if (!current_user_can('manage_options')) {
+            wp_die('', 403);
+        }
+
+        check_admin_referer('rec_snapshot');
+        nocache_headers();
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="rowan-edge-cache-snapshot-' . gmdate('Ymd-His') . '.json"');
+
+        echo REC_Health::export_json();
+        exit;
+    }
+
+    /**
+     * Settings export.
+     */
+    public static function export_settings() {
+        if (!current_user_can('manage_options')) {
+            wp_die('', 403);
+        }
+
+        check_admin_referer('rec_export');
+        nocache_headers();
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="rowan-edge-cache-settings-' . gmdate('Ymd') . '.json"');
+
+        echo wp_json_encode(
+            array(
+                'version'  => REC_VER,
+                'settings' => rec_settings(),
+                'consent'  => get_option('rec_consent', ''),
+            ),
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+        );
+        exit;
+    }
+
+    /**
+     * Settings import.
+     */
+    public static function import_settings() {
+        if (!current_user_can('manage_options')) {
+            wp_die('', 403);
+        }
+
+        check_admin_referer('rec_import');
+
+        if (empty($_FILES['rec_file']['tmp_name'])) {
+            wp_safe_redirect(admin_url('admin.php?page=' . self::SLUG . '&imported=0'));
+            exit;
+        }
+
+        $raw  = (string) file_get_contents($_FILES['rec_file']['tmp_name']);
+        $data = json_decode($raw, true);
+
+        if (is_array($data) && isset($data['settings']) && is_array($data['settings'])) {
+            rec_save_settings($data['settings']);
+
+            if (!empty($data['consent'])) {
+                update_option('rec_consent', 'yes' === $data['consent'] ? 'yes' : 'no');
+            }
+        }
+
+        wp_safe_redirect(admin_url('admin.php?page=' . self::SLUG . '&imported=1'));
+        exit;
+    }
+
+    /**
+     * Add a redirect.
+     */
+    public static function redirect_add() {
+        if (!current_user_can('manage_options')) {
+            wp_die('', 403);
+        }
+
+        check_admin_referer('rec_redirect');
+
+        REC_Redirects::save(
+            isset($_POST['path']) ? wp_unslash($_POST['path']) : '',
+            isset($_POST['target']) ? wp_unslash($_POST['target']) : ''
+        );
+
+        wp_safe_redirect(admin_url('admin.php?page=' . self::SLUG . '#redirects'));
+        exit;
+    }
+
+    /**
+     * Delete a redirect or 404 row.
+     */
+    public static function redirect_delete() {
+        if (!current_user_can('manage_options')) {
+            wp_die('', 403);
+        }
+
+        check_admin_referer('rec_redirect');
+        REC_Redirects::delete(isset($_GET['id']) ? (int) $_GET['id'] : 0);
+
+        wp_safe_redirect(admin_url('admin.php?page=' . self::SLUG . '#redirects'));
+        exit;
+    }
+
+    /**
+     * Purge via admin-post.
+     */
+    public static function purge() {
+        if (!current_user_can('manage_options')) {
+            wp_die('', 403);
+        }
+
+        check_admin_referer('rec_purge');
+        rec_flush_cache();
+        rec_bump('cleared');
+
+        wp_safe_redirect(wp_get_referer() ? wp_get_referer() : admin_url());
+        exit;
+    }
+
+    /**
+     * AJAX clear.
+     */
+    public static function ajax_clear() {
+        check_ajax_referer('rec_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(null, 403);
+        }
+
+        wp_send_json_success(array('removed' => rec_flush_cache()));
+    }
+
+    /**
+     * AJAX DB maintenance.
+     */
+    public static function ajax_db() {
+        check_ajax_referer('rec_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(null, 403);
+        }
+
+        $result = REC_DB::clean();
+        $result['optimized'] = REC_DB::optimize();
+
+        wp_send_json_success($result);
+    }
+
+    /**
+     * AJAX backup creation.
+     */
+    public static function ajax_backup() {
+        check_ajax_referer('rec_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(null, 403);
+        }
+
+        wp_send_json_success(REC_Backup::create());
+    }
+
+    /**
+     * Download one backup.
+     */
+    public static function backup_download() {
+        if (!current_user_can('manage_options')) {
+            wp_die('', 403);
+        }
+
+        check_admin_referer('rec_backup');
+        $file = REC_Backup::dir() . '/' . basename(isset($_GET['file']) ? (string) $_GET['file'] : '');
+
+        if (is_file($file)) {
+            header('Content-Type: application/gzip');
+            header('Content-Disposition: attachment; filename="' . basename($file) . '"');
+            header('Content-Length: ' . filesize($file));
+            readfile($file);
+            exit;
+        }
+
+        wp_die('', 404);
+    }
+
+    /**
+     * Delete one backup.
+     */
+    public static function backup_delete() {
+        if (!current_user_can('manage_options')) {
+            wp_die('', 403);
+        }
+
+        check_admin_referer('rec_backup');
+        $file = REC_Backup::dir() . '/' . basename(isset($_GET['file']) ? (string) $_GET['file'] : '');
+
+        if (is_file($file)) {
+            @unlink($file);
+        }
+
+        wp_safe_redirect(admin_url('admin.php?page=' . self::SLUG . '#tools'));
+        exit;
+    }
+
+    /**
+     * AJAX bulk WebP generation.
+     */
+    public static function ajax_webp() {
+        check_ajax_referer('rec_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(null, 403);
+        }
+
+        if (!function_exists('imagewebp')) {
+            wp_send_json_error(array('reason' => 'gd'), 200);
+        }
+
+        $ids = get_posts(
+            array(
+                'numberposts'    => 40,
+                'post_type'      => 'attachment',
+                'post_status'    => 'inherit',
+                'post_mime_type' => 'image/jpeg,image/png',
+                'fields'         => 'ids',
+                'meta_query'     => array(
+                    array(
+                        'key'     => '_rec_webp_done',
+                        'compare' => 'NOT EXISTS',
+                    ),
+                ),
+            )
+        );
+
+        $done = 0;
+
+        foreach ($ids as $id) {
+            $meta = wp_get_attachment_metadata($id);
+
+            if (is_array($meta)) {
+                REC_Optimizer::webp_generate($meta, $id);
+                update_post_meta($id, '_rec_webp_done', 1);
+                $done++;
+            }
+        }
+
+        wp_send_json_success(array('processed' => $done, 'remaining' => max(0, count($ids) - $done)));
+    }
+
+    /**
+     * AJAX cloud check.
+     */
+    public static function ajax_cloud() {
+        check_ajax_referer('rec_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(null, 403);
+        }
+
+        wp_send_json_success(REC_Health::cloud_check());
+    }
+
+    /**
+     * AJAX environment refresh.
+     */
+    public static function ajax_refresh() {
+        check_ajax_referer('rec_ajax', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(null, 403);
+        }
+
+        $diag = REC_Cleanup::diagnostics(true);
+
+        wp_send_json_success(
+            array(
+                'config_readable' => (bool) $diag['config_readable'],
+                'env_detected'    => (bool) $diag['env_detected'],
+                'entries'         => (int) $diag['entries'],
+            )
+        );
+    }
+
+    /**
+     * Dashboard widget.
+     */
+    public static function widget() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        wp_add_dashboard_widget(
+            'rowan-edge-cache_stats',
+            __('Rowan Edge Cache', 'rowan-edge-cache'),
+            function () {
+                $stats = rec_stats();
+                $total = (int) $stats['hits'] + (int) $stats['misses'];
+                $rate  = $total ? round(((int) $stats['hits'] / $total) * 100) : 0;
+
+                echo '<p>' . sprintf(esc_html__('Cache hit rate: %d%%', 'rowan-edge-cache'), $rate) . '</p>';
+                echo '<p>' . sprintf(esc_html__('Average load: %s ms', 'rowan-edge-cache'), esc_html($stats['load'])) . '</p>';
+                echo '<p><a href="' . esc_url(admin_url('admin.php?page=' . self::SLUG)) . '">' . esc_html__('Open Rowan Edge Cache', 'rowan-edge-cache') . '</a></p>';
+            }
+        );
+    }
+}
