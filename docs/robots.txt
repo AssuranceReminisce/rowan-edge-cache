@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://assurancereminisce.github.io/rowan-edge-cache/sitemap.xml
